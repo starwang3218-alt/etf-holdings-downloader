@@ -50,8 +50,39 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Preflight check
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "===== WORKSPACE ====="
+          pwd
+          ls -la
+          echo
+          echo "===== INPUTS ====="
+          echo "start_date=${{ inputs.start_date }}"
+          echo "end_date=${{ inputs.end_date }}"
+          echo "url_file=${{ inputs.url_file }}"
+          echo "workers=${{ inputs.workers }}"
+          echo "weekdays_only=${{ inputs.weekdays_only }}"
+          echo "cleanup_empty=${{ inputs.cleanup_empty }}"
+          echo
+          echo "===== PYTHON ====="
+          python --version
+          echo
+          echo "===== URL FILE CHECK ====="
+          test -f "${{ inputs.url_file }}"
+          wc -l "${{ inputs.url_file }}"
+          head -n 5 "${{ inputs.url_file }}"
+          echo
+          echo "===== SCRIPT CHECK ====="
+          test -f download_ishares_history.py
+          test -f cleanup_ishares_empty_files_v2.py
+          ls -lh download_ishares_history.py cleanup_ishares_empty_files_v2.py
+
       - name: Download iShares holdings
         shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
         run: |
           set -euo pipefail
 
@@ -60,7 +91,8 @@ jobs:
             FLAGS="$FLAGS --weekdays-only"
           fi
 
-          python download_ishares_history.py \
+          echo "===== START DOWNLOAD ====="
+          python -u download_ishares_history.py \
             --root "$GITHUB_WORKSPACE/out" \
             --url-file "${{ inputs.url_file }}" \
             --start "${{ inputs.start_date }}" \
@@ -68,16 +100,19 @@ jobs:
             --workers "${{ inputs.workers }}" \
             --min-sleep 0.5 \
             --max-sleep 2.0 \
-            --print-every 100 \
+            --print-every 10 \
             $FLAGS
 
       - name: Cleanup empty iShares template files
         if: ${{ always() && inputs.cleanup_empty == 'true' }}
         shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
         run: |
           set -euo pipefail
+          echo "===== CLEANUP EMPTY FILES ====="
           if [ -d "$GITHUB_WORKSPACE/out/data/vendors/ishares/raw" ]; then
-            python cleanup_ishares_empty_files_v2.py \
+            python -u cleanup_ishares_empty_files_v2.py \
               --root "$GITHUB_WORKSPACE/out" \
               --max-bytes 12288 \
               --delete
@@ -90,12 +125,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "===== PACK RESULT ====="
           mkdir -p package
           if [ -d "$GITHUB_WORKSPACE/out/data/vendors/ishares" ]; then
             cd "$GITHUB_WORKSPACE/out"
             tar -czf "$GITHUB_WORKSPACE/package/ishares_${{ inputs.start_date }}_${{ inputs.end_date }}.tar.gz" data/vendors/ishares
+            ls -lh "$GITHUB_WORKSPACE/package"
           else
             echo "No downloaded files found." > "$GITHUB_WORKSPACE/package/NO_FILES_DOWNLOADED.txt"
+            ls -lh "$GITHUB_WORKSPACE/package"
           fi
 
       - name: Upload artifact even if previous step failed
@@ -104,4 +142,4 @@ jobs:
         with:
           name: ishares_${{ inputs.start_date }}_${{ inputs.end_date }}
           path: package/*
-          retention-days: 7
+          retention-days: 15
