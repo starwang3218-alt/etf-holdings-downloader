@@ -1,0 +1,107 @@
+name: Backfill iShares Holdings
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "Start date, e.g. 2021-01-04"
+        required: true
+        default: "2021-01-04"
+      end_date:
+        description: "End date, e.g. 2021-12-31"
+        required: true
+        default: "2021-12-31"
+      url_file:
+        description: "iShares URL key file in repo"
+        required: true
+        default: "ishares_holding_urls.txt"
+      workers:
+        description: "Downloader workers"
+        required: true
+        default: "2"
+      weekdays_only:
+        description: "Use --weekdays-only"
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
+      cleanup_empty:
+        description: "Run iShares empty-template cleanup after download"
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download iShares holdings
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FLAGS=""
+          if [ "${{ inputs.weekdays_only }}" = "true" ]; then
+            FLAGS="$FLAGS --weekdays-only"
+          fi
+
+          python download_ishares_history.py \
+            --root "$GITHUB_WORKSPACE/out" \
+            --url-file "${{ inputs.url_file }}" \
+            --start "${{ inputs.start_date }}" \
+            --end "${{ inputs.end_date }}" \
+            --workers "${{ inputs.workers }}" \
+            --min-sleep 0.5 \
+            --max-sleep 2.0 \
+            --print-every 100 \
+            $FLAGS
+
+      - name: Cleanup empty iShares template files
+        if: ${{ always() && inputs.cleanup_empty == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d "$GITHUB_WORKSPACE/out/data/vendors/ishares/raw" ]; then
+            python cleanup_ishares_empty_files_v2.py \
+              --root "$GITHUB_WORKSPACE/out" \
+              --max-bytes 12288 \
+              --delete
+          else
+            echo "No iShares raw directory found; skip cleanup."
+          fi
+
+      - name: Pack result even if previous step failed
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p package
+          if [ -d "$GITHUB_WORKSPACE/out/data/vendors/ishares" ]; then
+            cd "$GITHUB_WORKSPACE/out"
+            tar -czf "$GITHUB_WORKSPACE/package/ishares_${{ inputs.start_date }}_${{ inputs.end_date }}.tar.gz" data/vendors/ishares
+          else
+            echo "No downloaded files found." > "$GITHUB_WORKSPACE/package/NO_FILES_DOWNLOADED.txt"
+          fi
+
+      - name: Upload artifact even if previous step failed
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ishares_${{ inputs.start_date }}_${{ inputs.end_date }}
+          path: package/*
+          retention-days: 7
