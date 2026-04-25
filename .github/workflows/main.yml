@@ -18,7 +18,7 @@ on:
       workers:
         description: "Downloader workers"
         required: true
-        default: "2"
+        default: "4"
       weekdays_only:
         description: "Use --weekdays-only"
         required: true
