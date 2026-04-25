@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       start_date:
-        description: "Start date, e.g. 2021-01-04"
+        description: "Start date, e.g. 2025-01-01"
         required: true
-        default: "2021-01-04"
+        default: "2021-01-01"
       end_date:
-        description: "End date, e.g. 2021-12-31"
+        description: "End date, e.g. 2025-12-31"
         required: true
-        default: "2021-12-31"
+        default: "2025-12-31"
       url_file:
         description: "iShares URL key file in repo"
         required: true
