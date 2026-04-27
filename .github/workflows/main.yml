@@ -1,145 +1,43 @@
-name: Backfill iShares Holdings
+name: 🚀 WisdomTree 云端突围测试
 
+# 允许手动随时点击运行
 on:
   workflow_dispatch:
-    inputs:
-      start_date:
-        description: "Start date, e.g. 2026-01-01"
-        required: true
-        default: "2026-01-01"
-      end_date:
-        description: "End date, e.g. 2026-04-26"
-        required: true
-        default: "2026-04-26"
-      url_file:
-        description: "iShares URL key file in repo"
-        required: true
-        default: "ishares_holding_urls.txt"
-      workers:
-        description: "Downloader workers"
-        required: true
-        default: "4"
-      weekdays_only:
-        description: "Use --weekdays-only"
-        required: true
-        type: choice
-        options:
-          - "true"
-          - "false"
-        default: "true"
-      cleanup_empty:
-        description: "Run iShares empty-template cleanup after download"
-        required: true
-        type: choice
-        options:
-          - "true"
-          - "false"
-        default: "true"
 
 jobs:
-  download:
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-
+  scrape-and-test:
+    runs-on: ubuntu-latest # 使用 Ubuntu 环境，启动速度最快
+    
     steps:
-      - name: Checkout repo
+      - name: 📥 检出代码
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: 🐍 配置 Python 环境
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.10'
 
-      - name: Preflight check
-        shell: bash
+      - name: 📦 安装核心依赖
         run: |
-          set -euo pipefail
-          echo "===== WORKSPACE ====="
-          pwd
-          ls -la
-          echo
-          echo "===== INPUTS ====="
-          echo "start_date=${{ inputs.start_date }}"
-          echo "end_date=${{ inputs.end_date }}"
-          echo "url_file=${{ inputs.url_file }}"
-          echo "workers=${{ inputs.workers }}"
-          echo "weekdays_only=${{ inputs.weekdays_only }}"
-          echo "cleanup_empty=${{ inputs.cleanup_empty }}"
-          echo
-          echo "===== PYTHON ====="
-          python --version
-          echo
-          echo "===== URL FILE CHECK ====="
-          test -f "${{ inputs.url_file }}"
-          wc -l "${{ inputs.url_file }}"
-          head -n 5 "${{ inputs.url_file }}"
-          echo
-          echo "===== SCRIPT CHECK ====="
-          test -f download_ishares_history.py
-          test -f cleanup_ishares_empty_files_v2.py
-          ls -lh download_ishares_history.py cleanup_ishares_empty_files_v2.py
+          python -m pip install --upgrade pip
+          pip install pandas requests playwright lxml openpyxl xlrd html5lib
 
-      - name: Download iShares holdings
-        shell: bash
-        env:
-          PYTHONUNBUFFERED: "1"
+      - name: 🌐 安装无头浏览器环境 (Playwright)
         run: |
-          set -euo pipefail
+          playwright install chromium
+          playwright install-deps chromium
 
-          FLAGS=""
-          if [ "${{ inputs.weekdays_only }}" = "true" ]; then
-            FLAGS="$FLAGS --weekdays-only"
-          fi
-
-          echo "===== START DOWNLOAD ====="
-          python -u download_ishares_history.py \
-            --root "$GITHUB_WORKSPACE/out" \
-            --url-file "${{ inputs.url_file }}" \
-            --start "${{ inputs.start_date }}" \
-            --end "${{ inputs.end_date }}" \
-            --workers "${{ inputs.workers }}" \
-            --min-sleep 0.5 \
-            --max-sleep 2.0 \
-            --print-every 10 \
-            $FLAGS
-
-      - name: Cleanup empty iShares template files
-        if: ${{ always() && inputs.cleanup_empty == 'true' }}
-        shell: bash
-        env:
-          PYTHONUNBUFFERED: "1"
+      - name: ⚔️ 发起突围测试 (执行爬虫脚本)
         run: |
-          set -euo pipefail
-          echo "===== CLEANUP EMPTY FILES ====="
-          if [ -d "$GITHUB_WORKSPACE/out/data/vendors/ishares/raw" ]; then
-            python -u cleanup_ishares_empty_files_v2.py \
-              --root "$GITHUB_WORKSPACE/out" \
-              --max-bytes 12288 \
-              --delete
-          else
-            echo "No iShares raw directory found; skip cleanup."
-          fi
+          # 运行脚本，输出到 result 目录
+          python download_holdings_wisdomtree_v13_fixed.py -i wisdom_links.txt -o result/holdings
 
-      - name: Pack result even if previous step failed
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "===== PACK RESULT ====="
-          mkdir -p package
-          if [ -d "$GITHUB_WORKSPACE/out/data/vendors/ishares" ]; then
-            cd "$GITHUB_WORKSPACE/out"
-            tar -czf "$GITHUB_WORKSPACE/package/ishares_${{ inputs.start_date }}_${{ inputs.end_date }}.tar.gz" data/vendors/ishares
-            ls -lh "$GITHUB_WORKSPACE/package"
-          else
-            echo "No downloaded files found." > "$GITHUB_WORKSPACE/package/NO_FILES_DOWNLOADED.txt"
-            ls -lh "$GITHUB_WORKSPACE/package"
-          fi
-
-      - name: Upload artifact even if previous step failed
-        if: ${{ always() }}
+      - name: 📤 上传战利品与侦察情报 (Artifacts)
+        # 无论上一步是否报错，强制打包产物，我们要看 _debug 目录里的截图
+        if: always() 
         uses: actions/upload-artifact@v4
         with:
-          name: ishares_${{ inputs.start_date }}_${{ inputs.end_date }}
-          path: package/*
-          retention-days: 15
+          name: WisdomTree_Results_and_Debug
+          # 包含清洗好的 CSV 和 _debug 文件夹里的错误截图
+          path: result/ 
+          retention-days: 3
