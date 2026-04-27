@@ -6,7 +6,7 @@ on:
       start_date:
         description: "Start date, e.g. 2026-01-01"
         required: true
-        default: "2026-04-01"
+        default: "2026-01-01"
       end_date:
         description: "End date, e.g. 2026-04-26"
         required: true
