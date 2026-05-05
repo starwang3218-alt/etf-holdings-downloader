@@ -51,6 +51,8 @@ jobs:
           python-version: "3.11"
 
       - name: Download iShares holdings
+        env:
+          PYTHONUNBUFFERED: "1" # 强制 Python 实时输出日志，避免控制台假死
         shell: bash
         run: |
           set -euo pipefail
@@ -60,7 +62,8 @@ jobs:
             FLAGS="$FLAGS --weekdays-only"
           fi
 
-          python download_ishares_history.py \
+          # 增加了 -u 参数，并将 print-every 改为 1，方便排查是否被封 IP
+          python -u download_ishares_history.py \
             --root "$GITHUB_WORKSPACE/out" \
             --url-file "${{ inputs.url_file }}" \
             --start "${{ inputs.start_date }}" \
@@ -68,7 +71,7 @@ jobs:
             --workers "${{ inputs.workers }}" \
             --min-sleep 0.5 \
             --max-sleep 2.0 \
-            --print-every 100 \
+            --print-every 1 \
             $FLAGS
 
       - name: Cleanup empty iShares template files
