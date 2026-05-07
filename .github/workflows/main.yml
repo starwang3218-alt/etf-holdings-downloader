@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       start_date:
-        description: "Start date, e.g. 2023-01-03"
+        description: "Start date, e.g. 2025-01-01"
         required: true
-        default: "2023-01-03"
+        default: "2025-01-01"
       end_date:
-        description: "End date, e.g. 2024-12-31 / today / yesterday"
+        description: "End date, e.g. 2026-05-06 / today / yesterday"
         required: true
         default: "yesterday"
       url_file:
