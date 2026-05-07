@@ -1,24 +1,24 @@
-name: Backfill iShares Holdings
+name: Backfill Dimensional Holdings
 
 on:
   workflow_dispatch:
     inputs:
       start_date:
-        description: "Start date, e.g. 2018-01-01"
+        description: "Start date, e.g. 2023-01-03"
         required: true
-        default: "2018-01-01"
+        default: "2023-01-03"
       end_date:
-        description: "End date, e.g. 2018-12-31"
+        description: "End date, e.g. 2026-05-04 / today / yesterday"
         required: true
-        default: "2018-12-31"
+        default: "yesterday"
       url_file:
-        description: "iShares URL key file in repo"
+        description: "Dimensional URL key file in repo"
         required: true
-        default: "ishares_holding_urls.txt"
+        default: "dimen_urls.txt"
       workers:
         description: "Downloader workers"
         required: true
-        default: "2"
+        default: "3"
       weekdays_only:
         description: "Use --weekdays-only"
         required: true
@@ -28,13 +28,25 @@ on:
           - "false"
         default: "true"
       cleanup_empty:
-        description: "Run iShares empty-template cleanup after download"
+        description: "Run Dimensional empty-file cleanup after download"
         required: true
         type: choice
         options:
           - "true"
           - "false"
         default: "true"
+      package_by_year:
+        description: "Also package raw files by year"
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
+
+env:
+  PYTHONUNBUFFERED: "1"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   download:
@@ -50,9 +62,36 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download iShares holdings
-        env:
-          PYTHONUNBUFFERED: "1" # 强制 Python 实时输出日志，避免控制台假死
+      - name: Verify required files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Workspace: $GITHUB_WORKSPACE"
+          echo "Listing repo root:"
+          ls -la
+
+          test -f "download_dimensional_history.py" || {
+            echo "ERROR: download_dimensional_history.py not found"
+            exit 1
+          }
+
+          test -f "cleanup_dimensional_empty_files.py" || {
+            echo "ERROR: cleanup_dimensional_empty_files.py not found"
+            exit 1
+          }
+
+          test -f "package_vendor_raw_by_year.py" || {
+            echo "ERROR: package_vendor_raw_by_year.py not found"
+            exit 1
+          }
+
+          test -f "${{ inputs.url_file }}" || {
+            echo "ERROR: URL file not found: ${{ inputs.url_file }}"
+            exit 1
+          }
+
+      - name: Download Dimensional holdings
         shell: bash
         run: |
           set -euo pipefail
@@ -62,49 +101,98 @@ jobs:
             FLAGS="$FLAGS --weekdays-only"
           fi
 
-          # 增加了 -u 参数，并将 print-every 改为 1，方便排查是否被封 IP
-          python -u download_ishares_history.py \
+          python -u download_dimensional_history.py \
             --root "$GITHUB_WORKSPACE/out" \
             --url-file "${{ inputs.url_file }}" \
             --start "${{ inputs.start_date }}" \
             --end "${{ inputs.end_date }}" \
             --workers "${{ inputs.workers }}" \
-            --min-sleep 0.5 \
-            --max-sleep 2.0 \
+            --min-sleep 0.2 \
+            --max-sleep 1.0 \
             --print-every 1 \
             $FLAGS
 
-      - name: Cleanup empty iShares template files
+      - name: Cleanup empty Dimensional files
         if: ${{ always() && inputs.cleanup_empty == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -d "$GITHUB_WORKSPACE/out/data/vendors/ishares/raw" ]; then
-            python cleanup_ishares_empty_files_v2.py \
+
+          if [ -d "$GITHUB_WORKSPACE/out/data/vendors/dimensional/raw" ]; then
+            python -u cleanup_dimensional_empty_files.py \
               --root "$GITHUB_WORKSPACE/out" \
-              --max-bytes 12288 \
               --delete
           else
-            echo "No iShares raw directory found; skip cleanup."
+            echo "No Dimensional raw directory found; skip cleanup."
           fi
 
-      - name: Pack result even if previous step failed
+      - name: Show download summary
         if: ${{ always() }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p package
-          if [ -d "$GITHUB_WORKSPACE/out/data/vendors/ishares" ]; then
+
+          echo "========== Dimensional raw directory summary =========="
+          if [ -d "$GITHUB_WORKSPACE/out/data/vendors/dimensional/raw" ]; then
+            find "$GITHUB_WORKSPACE/out/data/vendors/dimensional/raw" -type f | wc -l
+            du -sh "$GITHUB_WORKSPACE/out/data/vendors/dimensional/raw" || true
+
+            echo ""
+            echo "Top date folders:"
+            find "$GITHUB_WORKSPACE/out/data/vendors/dimensional/raw" -maxdepth 1 -mindepth 1 -type d | sort | head -20
+
+            echo ""
+            echo "Latest date folders:"
+            find "$GITHUB_WORKSPACE/out/data/vendors/dimensional/raw" -maxdepth 1 -mindepth 1 -type d | sort | tail -20
+          else
+            echo "No raw files found."
+          fi
+
+      - name: Package result
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$GITHUB_WORKSPACE/package"
+
+          if [ -d "$GITHUB_WORKSPACE/out/data/vendors/dimensional" ]; then
             cd "$GITHUB_WORKSPACE/out"
-            tar -czf "$GITHUB_WORKSPACE/package/ishares_${{ inputs.start_date }}_${{ inputs.end_date }}.tar.gz" data/vendors/ishares
+
+            tar -czf "$GITHUB_WORKSPACE/package/dimensional_${{ inputs.start_date }}_${{ inputs.end_date }}.tar.gz" \
+              data/vendors/dimensional
+
+            echo "Created main package:"
+            ls -lh "$GITHUB_WORKSPACE/package"
           else
             echo "No downloaded files found." > "$GITHUB_WORKSPACE/package/NO_FILES_DOWNLOADED.txt"
           fi
 
-      - name: Upload artifact even if previous step failed
+      - name: Package raw files by year
+        if: ${{ always() && inputs.package_by_year == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -d "$GITHUB_WORKSPACE/out/data/vendors/dimensional/raw" ]; then
+            python -u package_vendor_raw_by_year.py \
+              --root "$GITHUB_WORKSPACE/out" \
+              --vendor dimensional \
+              --start 2023 \
+              --end 2026 \
+              --overwrite
+
+            if [ -d "$GITHUB_WORKSPACE/out/data/vendors/dimensional/packages" ]; then
+              cp "$GITHUB_WORKSPACE"/out/data/vendors/dimensional/packages/*.tar.gz "$GITHUB_WORKSPACE/package/" || true
+            fi
+          else
+            echo "No Dimensional raw directory found; skip year package."
+          fi
+
+      - name: Upload artifact
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ishares_${{ inputs.start_date }}_${{ inputs.end_date }}
+          name: dimensional_${{ inputs.start_date }}_${{ inputs.end_date }}
           path: package/*
           retention-days: 7
