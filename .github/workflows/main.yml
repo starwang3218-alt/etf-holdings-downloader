@@ -8,7 +8,7 @@ on:
         required: true
         default: "2023-01-03"
       end_date:
-        description: "End date, e.g. 2026-05-04 / today / yesterday"
+        description: "End date, e.g. 2024-12-31 / today / yesterday"
         required: true
         default: "yesterday"
       url_file:
